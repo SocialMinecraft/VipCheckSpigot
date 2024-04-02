@@ -1,0 +1,4 @@
+name: VipCheck
+version: 1.0
+main: club.somc.vip.VipCheckPlugin
+api-version: 1.20
