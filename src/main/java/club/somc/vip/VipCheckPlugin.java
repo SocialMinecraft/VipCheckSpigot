@@ -19,14 +19,6 @@ public class VipCheckPlugin extends JavaPlugin {
         super.onEnable();
         this.saveDefaultConfig();
 
-        RegisteredServiceProvider<LuckPerms> lpp = Bukkit.getServicesManager().getRegistration(LuckPerms.class);
-        if (lpp != null) {
-           getLogger().severe("LuckPerms is not found.");
-        }
-        LuckPerms luckPerms = lpp.getProvider();
-        // So I could have used bungee plugin with the following...
-        //LuckPermsProvider.get()
-
         try {
             this.nc = Nats.connect(getConfig().getString("natsUrl"));
         } catch (IOException e) {
@@ -35,7 +27,7 @@ public class VipCheckPlugin extends JavaPlugin {
             throw new RuntimeException(e);
         }
 
-        getServer().getPluginManager().registerEvents(new PlayerLogin(luckPerms, nc), this);
+        getServer().getPluginManager().registerEvents(new PlayerLogin(nc), this);
     }
 
     @Override

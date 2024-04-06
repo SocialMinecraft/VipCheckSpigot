@@ -6,7 +6,11 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import io.nats.client.Connection;
 import io.nats.client.Message;
 import net.luckperms.api.LuckPerms;
+import net.luckperms.api.LuckPermsProvider;
 import net.luckperms.api.model.user.User;
+import net.luckperms.api.track.DemotionResult;
+import net.luckperms.api.track.PromotionResult;
+import net.luckperms.api.track.Track;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -18,24 +22,32 @@ import java.util.Date;
 
 public class PlayerLogin implements Listener {
 
-    LuckPerms lp;
     Connection nc;
 
-    public PlayerLogin(LuckPerms lp, Connection nc) {
-        this.lp = lp;
+    public PlayerLogin(Connection nc) {
         this.nc = nc;
     }
 
     @EventHandler
     public void onPlayerJoinEvent(PlayerJoinEvent event) {
-        // Send a request to check the player's vip status.
 
-        //event.getPlayer().hasPermission("group.vip");
+
+        // So I could have used bungee plugin with the following...
+        //LuckPermsProvider.get()
+
+        LuckPerms lp;
+        try {
+            lp = LuckPermsProvider.get();
+        } catch (IllegalStateException e) {
+            Bukkit.getLogger().info("LuckPerms is not found.");
+            return;
+        }
+
         User user = lp.getPlayerAdapter(Player.class).getUser(event.getPlayer());
         Bukkit.getLogger().info(event.getPlayer().getName() + " primary group is " + user.getPrimaryGroup());
-        //user.setPrimaryGroup("vip/default");
 
 
+        // Send a request to check the player's vip status.
         GetRequest req = GetRequest.newBuilder()
                 .setMinecraftUuid(event.getPlayer().getUniqueId().toString())
                 .build();
@@ -57,11 +69,19 @@ public class PlayerLogin implements Listener {
             return;
         }
 
+        // stop if they are a mod...
+        if (user.getPrimaryGroup().equals("mod")) {
+            return;
+        }
+
         // do they have a membership that is not expired?
-        if (res.hasMembership() && new Date(res.getMembership().getExpire()).before(new Date())) {
+        if (res.hasMembership() && new Date((long)res.getMembership().getExpire()*1000).after(new Date())) {
             // set their vip to true.
             if (!user.getPrimaryGroup().equals("vip")) {
-                user.setPrimaryGroup("vip");
+                Track track = lp.getTrackManager().getTrack("user");
+                PromotionResult re = track.promote(user, lp.getContextManager().getStaticContext());
+                Bukkit.getLogger().info(re.toString());
+                lp.getUserManager().saveUser(user);
                 Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
             }
             return;
@@ -69,8 +89,12 @@ public class PlayerLogin implements Listener {
 
         // Set their vip to false
         if (!user.getPrimaryGroup().equals("default")) {
-            user.setPrimaryGroup("default");
+            Track track = lp.getTrackManager().getTrack("user");
+            DemotionResult re = track.demote(user, lp.getContextManager().getStaticContext());
+            Bukkit.getLogger().info(re.toString());
+            lp.getUserManager().saveUser(user);
             Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
+
         }
 
 
