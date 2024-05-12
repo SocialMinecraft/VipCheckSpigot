@@ -44,7 +44,7 @@ public class PlayerLogin implements Listener {
         }
 
         User user = lp.getPlayerAdapter(Player.class).getUser(event.getPlayer());
-        Bukkit.getLogger().info(event.getPlayer().getName() + " primary group is " + user.getPrimaryGroup());
+        Bukkit.getLogger().info(event.getPlayer().getName() + " primary group (start): " + user.getPrimaryGroup());
 
 
         // Send a request to check the player's vip status.
@@ -68,14 +68,19 @@ public class PlayerLogin implements Listener {
             Bukkit.getLogger().warning(e.getMessage());
             return;
         }
+        boolean hasMembership = res.hasMembership();
+        boolean activeMembership = (hasMembership && new Date((long)res.getMembership().getExpire()*1000).after(new Date()));
+
+        Bukkit.getLogger().info(event.getPlayer().getName() + " membership Record: " + (hasMembership ? "Yes" : "No"));
+        Bukkit.getLogger().info(event.getPlayer().getName() + " membership active: " + (activeMembership ? "Yes" : "No"));
+
 
         // stop if they are a mod...
         if (user.getPrimaryGroup().equals("mod")) {
             return;
         }
 
-        // do they have a membership that is not expired?
-        if (res.hasMembership() && new Date((long)res.getMembership().getExpire()*1000).after(new Date())) {
+        if (activeMembership) {
             // set their vip to true.
             if (!user.getPrimaryGroup().equals("vip")) {
                 Track track = lp.getTrackManager().getTrack("user");
@@ -84,19 +89,17 @@ public class PlayerLogin implements Listener {
                 lp.getUserManager().saveUser(user);
                 Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
             }
-            return;
+        } else {
+            // Set their vip to false
+            if (!user.getPrimaryGroup().equals("default")) {
+                Track track = lp.getTrackManager().getTrack("user");
+                DemotionResult re = track.demote(user, lp.getContextManager().getStaticContext());
+                Bukkit.getLogger().info(re.toString());
+                lp.getUserManager().saveUser(user);
+                Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
+            }
         }
 
-        // Set their vip to false
-        if (!user.getPrimaryGroup().equals("default")) {
-            Track track = lp.getTrackManager().getTrack("user");
-            DemotionResult re = track.demote(user, lp.getContextManager().getStaticContext());
-            Bukkit.getLogger().info(re.toString());
-            lp.getUserManager().saveUser(user);
-            Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
-
-        }
-
-
+        Bukkit.getLogger().info(event.getPlayer().getName() + " primary group (final): " + user.getPrimaryGroup());
     }
 }
