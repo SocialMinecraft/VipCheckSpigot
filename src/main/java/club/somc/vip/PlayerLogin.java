@@ -2,16 +2,13 @@ package club.somc.vip;
 
 import club.somc.protos.vip.GetRequest;
 import club.somc.protos.vip.GetResponse;
+import club.somc.protos.vip.Membership;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.nats.client.Connection;
 import io.nats.client.Message;
 import net.luckperms.api.LuckPerms;
 import net.luckperms.api.LuckPermsProvider;
-import net.luckperms.api.model.user.User;
-import net.luckperms.api.track.DemotionResult;
-import net.luckperms.api.track.PromotionResult;
-import net.luckperms.api.track.Track;
-import org.bukkit.Bukkit;
+import net.luckperms.api.node.types.InheritanceNode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -19,37 +16,62 @@ import org.bukkit.event.player.PlayerJoinEvent;
 
 import java.time.Duration;
 import java.util.Date;
+import java.util.logging.Logger;
 
 public class PlayerLogin implements Listener {
 
     Connection nc;
+    Logger logger;
+    LuckPerms lp;
 
-    public PlayerLogin(Connection nc) {
+    public PlayerLogin(Connection nc, Logger logger) {
+
         this.nc = nc;
+        this.logger = logger;
+
+        setupLuckPerms();
     }
+
+    private void setupLuckPerms() {
+        try {
+            lp = LuckPermsProvider.get();
+        } catch (NoClassDefFoundError ex) {
+            logger.warning("LuckPerms not found");
+            // should really crash.
+        }
+    }
+
 
     @EventHandler
     public void onPlayerJoinEvent(PlayerJoinEvent event) {
 
 
-        // So I could have used bungee plugin with the following...
-        //LuckPermsProvider.get()
-
-        LuckPerms lp;
-        try {
-            lp = LuckPermsProvider.get();
-        } catch (IllegalStateException e) {
-            Bukkit.getLogger().info("LuckPerms is not found.");
-            return;
+        Membership membership = getMembership(event.getPlayer());
+        if (membership == null) {
+            logger.info(event.getPlayer().getName() + " has no membership");
         }
 
-        User user = lp.getPlayerAdapter(Player.class).getUser(event.getPlayer());
-        Bukkit.getLogger().info(event.getPlayer().getName() + " primary group (start): " + user.getPrimaryGroup());
+        lp.getUserManager().modifyUser(event.getPlayer().getUniqueId(), user -> {
+            InheritanceNode node = InheritanceNode.builder("vip").build();
 
+            if (membership != null && membershipActive(membership)) {
+                logger.info(event.getPlayer().getName() + " has active vip");
+                user.data().add(node);
+            } else {
+                logger.info(event.getPlayer().getName() + " does not have active vip");
+                user.data().remove(node);
+            }
+        });
+    }
 
+    private boolean membershipActive(Membership membership) {
+        return  (new Date((long)membership.getExpire()*1000).after(new Date()));
+    }
+
+    private Membership getMembership(Player player) {
         // Send a request to check the player's vip status.
         GetRequest req = GetRequest.newBuilder()
-                .setMinecraftUuid(event.getPlayer().getUniqueId().toString())
+                .setMinecraftUuid(player.getUniqueId().toString())
                 .build();
 
 
@@ -57,49 +79,20 @@ public class PlayerLogin implements Listener {
         try {
             m = nc.request("vip.get", req.toByteArray(), Duration.ofMillis(300));
         } catch (InterruptedException e) {
-            Bukkit.getLogger().warning(e.getMessage());
-            return;
+            logger.warning(e.getMessage());
+            return null;
         }
 
         GetResponse res;
         try {
-             res = GetResponse.parseFrom(m.getData());
+            res = GetResponse.parseFrom(m.getData());
+            if (res.hasMembership())
+                return res.getMembership();
+            else
+                return null;
         } catch (InvalidProtocolBufferException e) {
-            Bukkit.getLogger().warning(e.getMessage());
-            return;
+            logger.warning(e.getMessage());
+            return null;
         }
-        boolean hasMembership = res.hasMembership();
-        boolean activeMembership = (hasMembership && new Date((long)res.getMembership().getExpire()*1000).after(new Date()));
-
-        Bukkit.getLogger().info(event.getPlayer().getName() + " membership Record: " + (hasMembership ? "Yes" : "No"));
-        Bukkit.getLogger().info(event.getPlayer().getName() + " membership active: " + (activeMembership ? "Yes" : "No"));
-
-
-        // stop if they are a mod...
-        if (user.getPrimaryGroup().equals("mod")) {
-            return;
-        }
-
-        if (activeMembership) {
-            // set their vip to true.
-            if (!user.getPrimaryGroup().equals("vip")) {
-                Track track = lp.getTrackManager().getTrack("user");
-                PromotionResult re = track.promote(user, lp.getContextManager().getStaticContext());
-                Bukkit.getLogger().info(re.toString());
-                lp.getUserManager().saveUser(user);
-                Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
-            }
-        } else {
-            // Set their vip to false
-            if (!user.getPrimaryGroup().equals("default")) {
-                Track track = lp.getTrackManager().getTrack("user");
-                DemotionResult re = track.demote(user, lp.getContextManager().getStaticContext());
-                Bukkit.getLogger().info(re.toString());
-                lp.getUserManager().saveUser(user);
-                Bukkit.getLogger().info(event.getPlayer().getName() + " primary group changed to " + user.getPrimaryGroup());
-            }
-        }
-
-        Bukkit.getLogger().info(event.getPlayer().getName() + " primary group (final): " + user.getPrimaryGroup());
     }
 }
